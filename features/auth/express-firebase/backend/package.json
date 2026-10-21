@@ -1,0 +1,8 @@
+{
+  "name": "devcommons-auth-express-demo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Runnable demo of the auth express-firebase variant",
+  "scripts": { "start": "node server.js" },
+  "dependencies": { "dotenv": "^16.4.5", "express": "^4.19.2", "firebase-admin": "^12.1.0" }
+}

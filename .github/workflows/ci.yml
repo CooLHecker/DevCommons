@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Fast: unit + end-to-end CLI tests (no network), on every OS and supported Node version.
+  test:
+    name: test (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm test
+
+  # Slow: install the feature into a fresh Vite project with the real CLI and run the real build.
+  installed-build:
+    name: installed build (ui=${{ matrix.ui }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ui: [default, headless]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node test/build-installed.mjs ${{ matrix.ui }}
+
+  # Install the Express variant into a fresh Express project and run the auth contract checks against real Express.
+  express-conformance:
+    name: express-firebase contract (real Express)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node test/conformance-express.mjs
+
+  # The demo apps shipped with the feature still build and import.
+  demo:
+    name: auth demo (frontend build + server-render checks, backend import)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: features/auth/react-vite-fastapi-firebase
+    env:
+      VITE_FIREBASE_API_KEY: x
+      VITE_FIREBASE_AUTH_DOMAIN: x.firebaseapp.com
+      VITE_FIREBASE_PROJECT_ID: x
+      VITE_FIREBASE_APP_ID: x
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-audit --no-fund
+        working-directory: features/auth/react-vite-fastapi-firebase/frontend
+      - run: npm run build
+        working-directory: features/auth/react-vite-fastapi-firebase/frontend
+      - run: npm run check
+        working-directory: features/auth/react-vite-fastapi-firebase/frontend
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+        working-directory: features/auth/react-vite-fastapi-firebase/backend
+      - run: python -c "import auth_module; print('auth_module imports')"
+        working-directory: features/auth/react-vite-fastapi-firebase/backend

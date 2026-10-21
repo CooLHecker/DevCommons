@@ -1,0 +1,26 @@
+{
+  "name": "devcommons",
+  "version": "0.9.0",
+  "description": "Reusable drop-in features (auth first) for any project, one folder per tech stack.",
+  "type": "module",
+  "bin": {
+    "devcommons": "scripts/cli.mjs"
+  },
+  "files": [
+    "scripts",
+    "features",
+    "contracts",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "list": "node scripts/cli.mjs list",
+    "detect": "node scripts/cli.mjs detect",
+    "test": "node --test test/patch.test.mjs test/cli.test.mjs test/remove.test.mjs test/detect.test.mjs test/hashes.test.mjs test/update.test.mjs test/cra.test.mjs test/express.test.mjs test/express-cli.test.mjs",
+    "test:build": "node test/build-installed.mjs default && node test/build-installed.mjs headless",
+    "test:conformance": "node test/conformance-express.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

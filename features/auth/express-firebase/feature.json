@@ -1,0 +1,93 @@
+{
+  "feature": "auth",
+  "stack": "express-firebase",
+  "version": "0.1.0",
+  "description": "Backend half of auth for an Express (Node) API: verifies Firebase ID tokens and serves the auth contract (GET /api/auth/me, POST /api/auth/register). Pair it with any frontend that follows contracts/auth.",
+  "contract": "auth",
+  "provides": [
+    "setupAuth(app): one call that loads credentials, optionally adds CORS, and mounts /api/auth/me and /api/auth/register",
+    "requireAuth / optionalAuth / requireVerifiedEmail middleware (req.user)",
+    "onRegister hook for saving new users in your own database",
+    "Works in CommonJS and ES-module projects (the module folder pins itself to CommonJS)"
+  ],
+  "detect": {
+    "backend": [
+      "express"
+    ]
+  },
+  "copy": [
+    {
+      "from": "backend/auth_module",
+      "to": "<backend>/auth_module"
+    }
+  ],
+  "dependencies": {
+    "backend": [
+      "firebase-admin",
+      "dotenv"
+    ]
+  },
+  "envDefaults": {
+    "backend": {
+      "GOOGLE_APPLICATION_CREDENTIALS": "./serviceAccountKey.json"
+    }
+  },
+  "postInstall": {
+    "backend": [
+      "Put your Firebase service-account key at the path set in .env (GOOGLE_APPLICATION_CREDENTIALS).",
+      "Add .env and the key file to .gitignore.",
+      "Protect your own routes: app.get('/api/things', requireAuth, (req, res) => res.json({ uid: req.user.uid }))"
+    ]
+  },
+  "prompts": [
+    {
+      "key": "frontendOrigin",
+      "ask": "Where does your frontend run in development (for backend CORS)?",
+      "default": "http://localhost:5173",
+      "defaultByTag": {
+        "side": "frontend",
+        "tags": {
+          "cra": "http://localhost:3000",
+          "vite": "http://localhost:5173"
+        }
+      },
+      "side": "backend"
+    }
+  ],
+  "patches": {
+    "backend": [
+      {
+        "id": "setup-auth",
+        "type": "js-setup-call",
+        "files": [
+          "server.js",
+          "app.js",
+          "index.js",
+          "main.js",
+          "src/server.js",
+          "src/app.js",
+          "src/index.js",
+          "src/main.js",
+          "server.mjs",
+          "app.mjs",
+          "index.mjs",
+          "server.cjs",
+          "app.cjs",
+          "index.cjs"
+        ],
+        "module": "auth_module",
+        "call": "setupAuth({{app}}, { corsOrigins: ['{{frontendOrigin}}'] })",
+        "altWhen": "['\"]cors['\"]",
+        "altCall": "setupAuth({{app}})",
+        "manual": [
+          "In your Express app, right after it is created:",
+          "",
+          "     const { setupAuth, requireAuth } = require('./auth_module')   // or: import { setupAuth, requireAuth } from './auth_module/index.js'",
+          "     setupAuth(app, { corsOrigins: ['{{frontendOrigin}}'] })       // drop corsOrigins if you already use the cors package",
+          "",
+          "     app.get('/api/things', requireAuth, (req, res) => res.json({ uid: req.user.uid }))"
+        ]
+      }
+    ]
+  }
+}

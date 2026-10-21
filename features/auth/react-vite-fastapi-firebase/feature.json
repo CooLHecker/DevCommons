@@ -1,0 +1,328 @@
+{
+  "feature": "auth",
+  "stack": "react-vite-fastapi-firebase",
+  "version": "0.5.0",
+  "description": "Login, registration, Google sign-in, password reset, and backend token verification. One wrapper component on the frontend, one call on the backend.",
+  "provides": [
+    "<AuthGate>: wraps your app, shows login/register/forgot/reset when signed out (no router needed)",
+    "Themable screens: labels, classNames, logo/header slots, layout (fullscreen | inline | modal), renderForm, follows [data-theme]/.dark",
+    "Headless core: useAuth(), useLoginForm()/useRegisterForm()/..., authFetch(): build the forms with your own components",
+    "Email/password login and registration, Google sign-in, password reset, email verification",
+    "setup_auth(app): one call that mounts /api/auth/me and /api/auth/register and loads credentials",
+    "get_current_user / get_optional_user / require_verified_email FastAPI dependencies",
+    "on_register hook for saving new users in your own database"
+  ],
+  "detect": {
+    "frontend": [
+      "react",
+      [
+        "vite",
+        "cra"
+      ]
+    ],
+    "backend": [
+      "fastapi"
+    ]
+  },
+  "copy": [
+    {
+      "from": "frontend/src/auth/core",
+      "to": "<frontend>/src/auth/core"
+    },
+    {
+      "from": "frontend/src/auth/config.js",
+      "to": "<frontend>/src/auth/config.js",
+      "when": {
+        "env": "vite"
+      }
+    },
+    {
+      "from": "frontend/env/cra/config.js",
+      "to": "<frontend>/src/auth/config.js",
+      "when": {
+        "env": "cra"
+      }
+    },
+    {
+      "from": "frontend/src/auth/ui",
+      "to": "<frontend>/src/auth/ui",
+      "when": {
+        "ui": "default"
+      }
+    },
+    {
+      "from": "frontend/src/auth/index.js",
+      "to": "<frontend>/src/auth/index.js",
+      "when": {
+        "ui": "default"
+      }
+    },
+    {
+      "from": "frontend/src/auth/index.headless.js",
+      "to": "<frontend>/src/auth/index.js",
+      "when": {
+        "ui": "headless"
+      }
+    },
+    {
+      "from": "backend/auth_module",
+      "to": "<backend>/auth_module"
+    },
+    {
+      "from": "backend/dev_reset_link.py",
+      "to": "<backend>/dev_reset_link.py"
+    }
+  ],
+  "dependencies": {
+    "frontend": [
+      "firebase"
+    ],
+    "backend": [
+      "fastapi",
+      "uvicorn[standard]",
+      "firebase-admin",
+      "python-dotenv"
+    ]
+  },
+  "envDefaults": {
+    "frontend": {
+      "VITE_FIREBASE_API_KEY": "",
+      "VITE_FIREBASE_AUTH_DOMAIN": "",
+      "VITE_FIREBASE_PROJECT_ID": "",
+      "VITE_FIREBASE_APP_ID": ""
+    },
+    "backend": {
+      "GOOGLE_APPLICATION_CREDENTIALS": "./serviceAccountKey.json"
+    }
+  },
+  "postInstall": {
+    "frontend": [
+      {
+        "text": "Fill in the empty VITE_FIREBASE_* values in .env (Firebase console -> Project settings -> Your apps).",
+        "unlessFilled": [
+          "VITE_FIREBASE_API_KEY",
+          "VITE_FIREBASE_AUTH_DOMAIN",
+          "VITE_FIREBASE_PROJECT_ID",
+          "VITE_FIREBASE_APP_ID"
+        ]
+      },
+      {
+        "text": "Render your own screens: const { user, loading, logout } = useAuth(), and useLoginForm() / useRegisterForm() for the forms (see README, \"Headless\").",
+        "when": {
+          "ui": "headless"
+        }
+      }
+    ],
+    "backend": [
+      "Put your Firebase service-account key at the path set in .env (GOOGLE_APPLICATION_CREDENTIALS).",
+      "Add .env and the key file to .gitignore."
+    ]
+  },
+  "prompts": [
+    {
+      "key": "backendUrl",
+      "ask": "Where does your backend run in development?",
+      "default": "http://localhost:8000",
+      "side": "frontend",
+      "defaultFromPort": {
+        "side": "backend",
+        "template": "http://localhost:{port}"
+      }
+    },
+    {
+      "key": "frontendOrigin",
+      "ask": "Where does your frontend run in development (for backend CORS)?",
+      "default": "http://localhost:5173",
+      "side": "backend",
+      "defaultBy": {
+        "option": "env",
+        "values": {
+          "cra": "http://localhost:3000"
+        }
+      }
+    },
+    {
+      "group": "firebase",
+      "groupAsk": "Enter your Firebase web-app config now? (you can also fill .env later)",
+      "key": "firebaseApiKey",
+      "ask": "Firebase apiKey",
+      "side": "frontend",
+      "env": "VITE_FIREBASE_API_KEY"
+    },
+    {
+      "group": "firebase",
+      "key": "firebaseAuthDomain",
+      "ask": "Firebase authDomain (e.g. my-app.firebaseapp.com)",
+      "side": "frontend",
+      "env": "VITE_FIREBASE_AUTH_DOMAIN"
+    },
+    {
+      "group": "firebase",
+      "key": "firebaseProjectId",
+      "ask": "Firebase projectId",
+      "side": "frontend",
+      "env": "VITE_FIREBASE_PROJECT_ID"
+    },
+    {
+      "group": "firebase",
+      "key": "firebaseAppId",
+      "ask": "Firebase appId",
+      "side": "frontend",
+      "env": "VITE_FIREBASE_APP_ID"
+    }
+  ],
+  "patches": {
+    "frontend": [
+      {
+        "id": "wrap-root",
+        "type": "wrap-root",
+        "files": [
+          "src/main.jsx",
+          "src/main.tsx",
+          "src/index.jsx",
+          "src/index.tsx",
+          "src/index.js",
+          "src/main.js"
+        ],
+        "module": "src/auth",
+        "component": "AuthGate",
+        "manual": [
+          "Wrap your app (e.g. in main.jsx):",
+          "",
+          "     import { AuthGate } from './auth'",
+          "     <AuthGate><App /></AuthGate>"
+        ],
+        "when": {
+          "ui": "default"
+        }
+      },
+      {
+        "id": "wrap-root-provider",
+        "type": "wrap-root",
+        "files": [
+          "src/main.jsx",
+          "src/main.tsx",
+          "src/index.jsx",
+          "src/index.tsx",
+          "src/index.js",
+          "src/main.js"
+        ],
+        "module": "src/auth",
+        "component": "AuthProvider",
+        "manual": [
+          "Wrap your app (e.g. in main.jsx):",
+          "",
+          "     import { AuthProvider } from './auth'",
+          "     <AuthProvider><App /></AuthProvider>"
+        ],
+        "when": {
+          "ui": "headless"
+        }
+      },
+      {
+        "id": "vite-proxy",
+        "type": "vite-proxy",
+        "path": "/api",
+        "target": "{{backendUrl}}",
+        "manual": [
+          "Make sure /api requests reach your backend: add to vite.config.js",
+          "",
+          "     server: { proxy: { '/api': '{{backendUrl}}' } }",
+          "",
+          "or set VITE_API_URL in .env"
+        ],
+        "when": {
+          "env": "vite"
+        }
+      },
+      {
+        "id": "cra-proxy",
+        "type": "cra-proxy",
+        "path": "/api",
+        "target": "{{backendUrl}}",
+        "when": {
+          "env": "cra"
+        },
+        "manual": [
+          "Make sure /api requests reach your backend: add to package.json",
+          "",
+          "     \"proxy\": \"{{backendUrl}}\"",
+          "",
+          "or set REACT_APP_API_URL in .env"
+        ]
+      }
+    ],
+    "backend": [
+      {
+        "id": "setup-auth",
+        "type": "py-setup-call",
+        "files": [
+          "main.py",
+          "app.py",
+          "server.py"
+        ],
+        "import": "from auth_module import setup_auth",
+        "call": "setup_auth({{app}}, cors_origins=[\"{{frontendOrigin}}\"])",
+        "altWhen": "CORSMiddleware",
+        "altCall": "setup_auth({{app}})",
+        "manual": [
+          "In your FastAPI app:",
+          "",
+          "     from auth_module import setup_auth, get_current_user, AuthUser",
+          "     setup_auth(app, cors_origins=[\"{{frontendOrigin}}\"])   # drop cors_origins if you already set CORS",
+          "",
+          "     @app.get(\"/api/things\")",
+          "     def things(user: AuthUser = Depends(get_current_user)): ..."
+        ]
+      }
+    ]
+  },
+  "options": [
+    {
+      "key": "ui",
+      "ask": "How should the sign-in screens be built?",
+      "default": "default",
+      "choices": [
+        {
+          "value": "default",
+          "label": "Ready-made screens",
+          "hint": "themable, drop-in <AuthGate>"
+        },
+        {
+          "value": "headless",
+          "label": "Headless",
+          "hint": "state and hooks only; you build the forms with your own components"
+        }
+      ]
+    },
+    {
+      "key": "env",
+      "ask": "Which bundler does the frontend use?",
+      "default": "vite",
+      "fromTags": {
+        "vite": "vite",
+        "cra": "cra"
+      },
+      "choices": [
+        {
+          "value": "vite",
+          "label": "Vite",
+          "hint": "settings from import.meta.env.VITE_*"
+        },
+        {
+          "value": "cra",
+          "label": "Create React App",
+          "hint": "settings from process.env.REACT_APP_*"
+        }
+      ]
+    }
+  ],
+  "envPrefix": {
+    "option": "env",
+    "base": "VITE_",
+    "values": {
+      "vite": "VITE_",
+      "cra": "REACT_APP_"
+    }
+  }
+}

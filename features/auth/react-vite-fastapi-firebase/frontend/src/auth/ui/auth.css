@@ -1,0 +1,159 @@
+/* Scoped under .auth-* so it will not collide with your app's styles.
+   Override the variables on :root (or .auth-page) to match your brand.
+
+   Dark mode follows, in this order: your own switch ([data-theme="dark"] or .dark on <html>,
+   <body> or any wrapper; [data-theme="light"] or .light forces light), otherwise the OS setting. */
+:root {
+  --auth-accent: #4f46e5;
+  --auth-accent-hover: #4338ca;
+  --auth-bg: #f4f5f9;
+  --auth-card: #ffffff;
+  --auth-text: #111827;
+  --auth-muted: #6b7280;
+  --auth-border: #d1d5db;
+  --auth-error-bg: #fef2f2;
+  --auth-error: #b91c1c;
+  --auth-success-bg: #ecfdf5;
+  --auth-success: #047857;
+  --auth-radius: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not(.light) {
+    --auth-accent: #818cf8;
+    --auth-accent-hover: #a5b4fc;
+    --auth-bg: #0f1117;
+    --auth-card: #181b24;
+    --auth-text: #f3f4f6;
+    --auth-muted: #9ca3af;
+    --auth-border: #2f3441;
+    --auth-error-bg: #2a1215;
+    --auth-error: #fca5a5;
+    --auth-success-bg: #0f2a20;
+    --auth-success: #6ee7b7;
+  }
+}
+
+[data-theme="dark"],
+.dark {
+  --auth-accent: #818cf8;
+  --auth-accent-hover: #a5b4fc;
+  --auth-bg: #0f1117;
+  --auth-card: #181b24;
+  --auth-text: #f3f4f6;
+  --auth-muted: #9ca3af;
+  --auth-border: #2f3441;
+  --auth-error-bg: #2a1215;
+  --auth-error: #fca5a5;
+  --auth-success-bg: #0f2a20;
+  --auth-success: #6ee7b7;
+}
+
+/* Don't rely on the host project having a global box-sizing reset. */
+.auth-page, .auth-page *, .auth-page *::before, .auth-page *::after { box-sizing: border-box; }
+
+/* Fixed + scrollable so it fills the screen whatever margins the host's <body> has. */
+.auth-page {
+  position: fixed;
+  inset: 0;
+  overflow-y: auto;
+  display: grid;
+  padding: 24px 16px;
+  background: var(--auth-bg);
+  color: var(--auth-text);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* layout="inline": flows inside your own container, takes your page's background and font. */
+.auth-page--inline {
+  position: static;
+  inset: auto;
+  overflow: visible;
+  display: block;
+  padding: 0;
+  background: transparent;
+  font-family: inherit;
+}
+.auth-page--inline .auth-card { margin: 0 auto; box-shadow: none; }
+
+/* layout="modal": a dialog over a dimmed backdrop. */
+.auth-page--modal { z-index: 1000; background: rgba(0, 0, 0, 0.5); }
+
+.auth-logo { margin-bottom: 16px; }
+
+.auth-card {
+  margin: auto; /* centres, and falls back to top-aligned when the card is taller than the screen */
+  width: 100%;
+  max-width: 400px;
+  padding: 32px 28px;
+  background: var(--auth-card);
+  border: 1px solid var(--auth-border);
+  border-radius: var(--auth-radius);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
+}
+
+.auth-header h1 { margin: 0; font-size: 1.5rem; }
+.auth-header p { margin: 6px 0 0; color: var(--auth-muted); font-size: 0.95rem; }
+
+.auth-form { display: flex; flex-direction: column; gap: 16px; margin-top: 24px; }
+
+.auth-field { display: flex; flex-direction: column; gap: 6px; font-size: 0.875rem; font-weight: 500; }
+.auth-field small { color: var(--auth-muted); font-weight: 400; }
+.auth-field input {
+  padding: 10px 12px;
+  font: inherit;
+  color: var(--auth-text);
+  background: transparent;
+  border: 1px solid var(--auth-border);
+  border-radius: 8px;
+}
+.auth-field input:focus-visible {
+  outline: 2px solid var(--auth-accent);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+.auth-link-right { align-self: flex-end; margin-top: -8px; font-size: 0.85rem; }
+.auth-card a { color: var(--auth-accent); text-decoration: none; }
+.auth-card a:hover { text-decoration: underline; }
+.auth-linkbtn {
+  padding: 0;
+  font: inherit;
+  color: var(--auth-accent);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.auth-linkbtn:hover { text-decoration: underline; }
+
+.auth-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 14px;
+  font: inherit;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.auth-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.auth-btn-primary { background: var(--auth-accent); color: #fff; }
+.auth-btn-primary:hover:not(:disabled) { background: var(--auth-accent-hover); }
+.auth-btn-secondary { background: transparent; color: var(--auth-text); border-color: var(--auth-border); }
+.auth-btn-secondary:hover:not(:disabled) { background: rgba(127, 127, 127, 0.1); }
+
+.auth-divider { display: flex; align-items: center; gap: 12px; margin: 20px 0; color: var(--auth-muted); font-size: 0.8rem; }
+.auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: var(--auth-border); }
+
+.auth-error, .auth-success { margin: 0; padding: 10px 12px; border-radius: 8px; font-size: 0.875rem; }
+.auth-error { background: var(--auth-error-bg); color: var(--auth-error); }
+.auth-success { margin-top: 24px; background: var(--auth-success-bg); color: var(--auth-success); }
+
+.auth-footer { margin-top: 24px; text-align: center; font-size: 0.9rem; color: var(--auth-muted); }
+
+.auth-loading { position: fixed; inset: 0; display: grid; place-items: center; color: var(--auth-muted); font-family: system-ui, sans-serif; }
+.auth-loading--inline { position: static; inset: auto; padding: 24px 0; }
