@@ -279,9 +279,10 @@ function runInstall(variant, flags, ctx) {
     fs.cpSync(from, dest, {
       recursive: true,
       force: true,
-      // Test the path *inside* the feature folder only. The catalogue itself usually lives under a
-      // node_modules folder (npx), so testing the full path would filter out every file.
-      filter: (source) => !/(^|[\\/])(__pycache__|node_modules)([\\/]|$)/.test(path.relative(from, source)),
+      // Judge each entry by its own name only. The catalogue itself usually lives under a node_modules
+      // folder (npx), so testing the full path would filter out every file, and comparing paths is not
+      // reliable on Windows (8.3 short names such as RUNNER~1 vs the long name).
+      filter: (source) => !['__pycache__', 'node_modules'].includes(path.basename(source)),
     })
     if (!fs.existsSync(dest) || (fs.statSync(dest).isDirectory() && fs.readdirSync(dest).length === 0)) {
       throw new Error(`Copy failed: ${rel(dest)} is missing or empty after copying from ${from}. Nothing in your code was edited.`)
