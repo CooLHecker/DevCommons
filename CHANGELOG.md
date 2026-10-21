@@ -3,6 +3,7 @@
 CLI versions (`package.json`). Feature variants have their own version in `feature.json`; it is named where it changes.
 
 ## 0.9.0 (unreleased)
+- Fix: `add` copied nothing when devcommons ran from `npx` (its own path contains `node_modules`, which the copy filter matched); the filter now checks the path inside the feature folder, and `add` stops before editing your files if a copied folder is missing or empty.
 - New variant `auth/express-firebase` 0.1.0 (backend only): `auth_module/` for Express with `setupAuth(app)`, `requireAuth`, `optionalAuth`, `requireVerifiedEmail`, an `onRegister` hook and a built-in CORS option. It imports nothing from Express, works from CommonJS and ES-module projects (the folder carries its own `package.json` with `"type": "commonjs"`), and loads `firebase-admin` only when it verifies a real token.
 - `contracts/auth/`: the HTTP contract (routes, user shape, 401/403 answers) and `conformance.mjs`, a dependency-free checker that any backend can be pointed at.
 - Stacks no longer get mixed: a half of a stack that does not match what was detected is left out (the React half of `react-vite-fastapi-firebase` goes into `web/`, never its FastAPI half into an Express folder). After installing, devcommons finds the stack that fits the other half of your project and installs it too (asks first when interactive; with `--yes` and a named stack it prints the command instead).

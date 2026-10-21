@@ -16,7 +16,7 @@
   "scripts": {
     "list": "node scripts/cli.mjs list",
     "detect": "node scripts/cli.mjs detect",
-    "test": "node --test test/patch.test.mjs test/cli.test.mjs test/remove.test.mjs test/detect.test.mjs test/hashes.test.mjs test/update.test.mjs test/cra.test.mjs test/express.test.mjs test/express-cli.test.mjs",
+    "test": "node --test test/patch.test.mjs test/cli.test.mjs test/remove.test.mjs test/detect.test.mjs test/hashes.test.mjs test/update.test.mjs test/cra.test.mjs test/express.test.mjs test/express-cli.test.mjs test/npx-path.test.mjs",
     "test:build": "node test/build-installed.mjs default && node test/build-installed.mjs headless",
     "test:conformance": "node test/conformance-express.mjs"
   },
