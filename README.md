@@ -1,4 +1,4 @@
-# devcommons
+# Devcommons
 
 Reusable, drop-in features for the projects and websites you build. Each feature lives in its own folder, and each feature can have several **stack variants** (frontend + backend + service combinations), so you can pick whichever fits the project in front of you.
 
