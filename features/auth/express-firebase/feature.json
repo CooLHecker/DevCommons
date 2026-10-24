@@ -35,7 +35,6 @@
   "postInstall": {
     "backend": [
       "Put your Firebase service-account key at the path set in .env (GOOGLE_APPLICATION_CREDENTIALS).",
-      "Add .env and the key file to .gitignore.",
       "Protect your own routes: app.get('/api/things', requireAuth, (req, res) => res.json({ uid: req.user.uid }))"
     ]
   },
@@ -89,5 +88,25 @@
         ]
       }
     ]
+  },
+  "secrets": {
+    "files": [
+      {
+        "side": "backend",
+        "env": "GOOGLE_APPLICATION_CREDENTIALS",
+        "inlineEnv": "FIREBASE_CREDENTIALS_JSON",
+        "adcEnv": "FIREBASE_PROJECT_ID",
+        "label": "Firebase service-account key",
+        "format": "service-account",
+        "help": "Firebase console -> Project settings -> Service accounts -> Generate new private key, and save it at that path."
+      }
+    ]
+  },
+  "doctor": {
+    "probe": {
+      "contract": "auth",
+      "path": "/auth/me",
+      "prefix": "/api"
+    }
   }
 }

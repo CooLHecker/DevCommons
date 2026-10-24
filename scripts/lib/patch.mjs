@@ -572,7 +572,7 @@ export function applyPatches(results, projectRoot) {
     const rel = path.relative(projectRoot, r.file)
     const safeRel = rel.startsWith('..') || path.isAbsolute(rel) ? path.basename(r.file) : rel
     const backup = path.join(projectRoot, '.devcommons', 'backup', safeRel)
-    if (!fs.existsSync(backup)) {
+    if (fs.existsSync(r.file) && !fs.existsSync(backup)) {
       fs.mkdirSync(path.dirname(backup), { recursive: true })
       fs.writeFileSync(backup, r.before.replace(/\n/g, r.eol))
     }

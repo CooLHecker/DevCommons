@@ -35,9 +35,28 @@ devcommons update                    # bring an installed feature up to this cat
 devcommons update --dry-run          # preview: shows a diff for every file it would replace
 devcommons add auth <stack> --frontend ./web --backend ./api --patch   # explicit folders + apply edits
 devcommons add --dry-run              # show the plan, change nothing
+devcommons doctor                     # is what I installed still healthy? (files, env, packages, running backend, secrets)
 devcommons detect                     # what devcommons sees here, and which stacks fit
 devcommons list                       # everything available
 ```
+
+### Check on it later: `doctor`
+
+```bash
+devcommons doctor                      # every installed feature, each problem with its fix
+devcommons doctor --url http://localhost:4000   # backend somewhere else (default: the dev proxy target / detected port)
+devcommons doctor --offline            # no network, no Python
+devcommons doctor --fix                # add missing .env / key entries to .gitignore (nothing else)
+devcommons doctor --json               # for CI; exit code 1 when a check fails
+```
+
+It checks that the installed files and the edits to your own files are still there, that the `.env` settings are filled in (it prints names, never values), that the service-account key is a real key for the same project as your frontend, that packages are installed, that the dev proxy points at the backend, and, if the backend is running, that `GET /api/auth/me` answers 401, a bad token is rejected, CORS allows your frontend and the dev server really forwards `/api`. It also fails if a key or `.env` is not ignored by git or is already committed. A backend that is not running is a warning, not a failure.
+
+### Safety
+
+- `add` puts `.env` and the key file in `.gitignore` (shown as a diff first, like every edit).
+- `add` and `remove` stop if a file they would edit has uncommitted changes, so `git diff` always shows exactly what they did. Interactive mode offers cancel / stash / continue; `--allow-dirty` skips the check.
+- devcommons never writes a private key or service-account JSON into a file, and never prints one.
 
 Needs Node 18+ (works on Windows, macOS, Linux). No dependencies.
 

@@ -13,6 +13,8 @@ import { fileURLToPath } from 'node:url'
 import { detectProject, detectFrontend, detectBackend, detectPackageManager, detectPythonManager, jsInstallCommand, pyInstallCommand, fitSide } from './lib/detect.mjs'
 import { ask, confirm, select, closePrompts, InputEnded } from './lib/prompt.mjs'
 import { planPatches, planReverts, renderDiff, applyPatches, whenMatches } from './lib/patch.mjs'
+import { runDoctor, summarize, AREAS } from './lib/doctor.mjs'
+import { gitRepo, dirtyFiles, stashFiles, secretTargets, planGitignore, looksSecret } from './lib/safety.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const FEATURES = path.join(ROOT, 'features')
@@ -32,6 +34,7 @@ Usage:
   devcommons add [feature] [stack] [options]   interactive: detects your project and asks what it needs
   devcommons remove [feature] [options]        undo an "add": revert the edits, delete the copied files you did not change
   devcommons update [feature] [options]        bring an installed feature up to the catalogue's version, keeping your edits
+  devcommons doctor [feature] [stack]          check an installed feature: files, edits, env, packages, a running backend, secrets
   devcommons detect                            show what devcommons sees in the current folder
   devcommons list                              show available features and stacks
 
@@ -45,6 +48,18 @@ Options:
   --no-patch       never edit your files; just print what to add by hand
   --option K=V     choose a variant option without being asked (repeatable), e.g. --option ui=headless
   --yes, -y        no questions: use detected folders and the best-fitting stack (remove: skip the confirmation)
+  --allow-dirty    edit files even if they have uncommitted changes (--force does too)
+
+doctor options:
+  --url URL        where the backend runs (default: the dev proxy target, then the detected port)
+  --origin URL     the frontend's origin for the CORS check (default: http://localhost:5173 for Vite, :3000 otherwise)
+  --prefix PATH    where the routes are mounted (default /api)
+  --offline        do not call the backend or run Python
+  --fix            add missing secret entries (.env, key file) to .gitignore, nothing else
+  --json           machine-readable output; exit code 1 when a check fails
+
+Before editing a file that has uncommitted changes, devcommons stops (or asks), so "git diff" always
+shows exactly what it changed. It also adds .env and your key file to .gitignore if they are not ignored.
 
 By default devcommons only copies files. In interactive mode (and with --yes) it also makes the small
 edits needed to wire the feature in, shows each one as a diff first, and keeps a backup of every
@@ -55,6 +70,8 @@ Examples:
   devcommons add auth react-vite-fastapi-firebase --frontend ./web --backend ./api --install
   devcommons add auth --yes --dry-run
   devcommons add auth --option ui=headless
+  devcommons doctor
+  devcommons doctor --url http://localhost:4000 --json
   devcommons remove auth --dry-run
   devcommons update --dry-run
 `
@@ -121,6 +138,7 @@ function withEnvPrefix(manifest, options) {
   const renameKeys = (obj = {}) => Object.fromEntries(Object.entries(obj).map(([k, v]) => [rename(k), v]))
   const out = { ...manifest }
   if (manifest.envDefaults) out.envDefaults = Object.fromEntries(Object.entries(manifest.envDefaults).map(([side, keys]) => [side, renameKeys(keys)]))
+  if (manifest.doctor?.apiUrlEnv) out.doctor = { ...manifest.doctor, apiUrlEnv: rename(manifest.doctor.apiUrlEnv) }
   if (manifest.prompts) out.prompts = manifest.prompts.map((p) => (p.env ? { ...p, env: rename(p.env) } : p))
   if (manifest.postInstall) {
     out.postInstall = Object.fromEntries(
@@ -186,7 +204,7 @@ function parseArgs(argv) {
   const flags = {}
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
-    if (['--install', '--force', '--dry-run', '--yes', '--patch', '--no-patch'].includes(arg)) {
+    if (['--install', '--force', '--dry-run', '--yes', '--patch', '--no-patch', '--allow-dirty', '--offline', '--json', '--fix'].includes(arg)) {
       flags[arg.slice(2).replace(/-(\w)/g, (_, c) => c.toUpperCase())] = true
     } else if (arg === '-y') {
       flags.yes = true
@@ -195,6 +213,10 @@ function parseArgs(argv) {
       const eq = pair?.indexOf('=') ?? -1
       if (!pair || eq < 1) die('--option needs KEY=VALUE, e.g. --option ui=headless')
       flags.options = { ...flags.options, [pair.slice(0, eq)]: pair.slice(eq + 1) }
+    } else if (arg === '--url' || arg === '--origin' || arg === '--prefix') {
+      const value = argv[++i]
+      if (!value || value.startsWith('--')) die(`${arg} needs a value`)
+      flags[arg.slice(2)] = value
     } else if (arg === '--frontend' || arg === '--backend') {
       const value = argv[++i]
       if (!value || value.startsWith('--')) die(`${arg} needs a folder`)
@@ -223,6 +245,8 @@ function checkFolder(side, dir) {
  * Never changes a key that already has a value.
  */
 function appendEnv(dir, values, label, dry) {
+  // defense in depth: private keys are never written to a .env
+  values = Object.fromEntries(Object.entries(values).filter(([, v]) => !looksSecret(v)))
   const file = path.join(dir, '.env')
   let text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''
   const have = new Map()
@@ -335,13 +359,57 @@ function runInstall(variant, flags, ctx) {
 /** Compute the edits for the chosen folders. */
 function planEdits(variant, chosen, ctx) {
   const entry = ctx.project.backends.find((b) => b.dir === chosen.backend)?.entry ?? null
-  return planPatches(variant.manifest.patches, {
+  const plan = planPatches(variant.manifest.patches, {
     dirs: { frontend: chosen.frontend, backend: chosen.backend },
     vars: ctx.vars,
     entry,
     feature: variant.feature,
     options: chosen.options,
   })
+  // keep .env files and the key file out of git: one more edit, shown and backed up like the rest
+  const targets = secretTargets({ manifest: variant.manifest, chosen, cwd: CWD })
+  return targets.length ? [...plan, planGitignore(CWD, targets)] : plan
+}
+
+const editFiles = (plan) => plan.filter((r) => r.status === 'apply').map((r) => r.file)
+
+/**
+ * Files devcommons is about to edit that have uncommitted changes. Returns 'go' | 'stashed' | 'cancel'.
+ * Not interactive: refuses (exits) unless --allow-dirty / --force. Outside a git repo there is nothing to compare, so it goes on.
+ */
+async function guardDirty(files, flags, { interactive, canStash = false, verb = 'edit' }) {
+  const unique = [...new Set(files)]
+  if (unique.length === 0) return 'go'
+  const repo = gitRepo(CWD)
+  if (!repo.inRepo) return 'go'
+  const dirty = dirtyFiles(CWD, unique)
+  if (dirty.length === 0) return 'go'
+  const list = dirty.map((d) => `    ${rel(d.file)}${d.untracked ? dim('  (not tracked by git yet)') : ''}`).join('\n')
+  if (flags.dryRun) {
+    console.log(`\n${yellow('Note:')} these files have uncommitted changes; a real run would stop here unless you pass --allow-dirty:\n${list}`)
+    return 'go'
+  }
+  if (flags.allowDirty || flags.force) return 'go'
+  if (!interactive) {
+    die(`These files have uncommitted changes, and devcommons would ${verb} them:\n${list}\n\nCommit or stash them first, so "git diff" shows only what devcommons changed.\nOr run again with --allow-dirty to go ahead anyway. Nothing was changed.`)
+  }
+  console.log(`\n${yellow('!')} These files have uncommitted changes, and devcommons would ${verb} them:\n${list}`)
+  const stashable = canStash && dirty.every((d) => !d.untracked)
+  const choice = await select('What now?', [
+    { label: 'Cancel', hint: 'commit or stash yourself, then run again', value: 'cancel' },
+    ...(stashable ? [{ label: 'Stash them first', hint: 'git stash push for just these files; "git stash pop" brings them back', value: 'stash' }] : []),
+    { label: 'Continue anyway', hint: 'originals are still saved in .devcommons/backup/', value: 'go' },
+  ])
+  if (choice === 'stash') {
+    const r = stashFiles(CWD, dirty.map((d) => d.file), `devcommons: before ${verb}`)
+    if (!r.ok) {
+      console.log(`  ${red('stash failed')}: ${r.message}`)
+      return 'cancel'
+    }
+    console.log(`  Stashed. Bring your changes back afterwards with: git stash pop`)
+    return 'stashed'
+  }
+  return choice
 }
 
 function printEdits(plan, willApply) {
@@ -495,6 +563,10 @@ async function collectVars(manifest, chosen, interactive, project) {
         askIt = groups[p.group]
       }
       if (askIt) value = (await ask(`${p.ask}${value ? ` [${value}]` : ''}: `)) || value
+      if (looksSecret(value)) {
+        console.log(`  ${yellow('!')} That looks like a private key or service-account JSON. devcommons never writes secrets to files, so it was ignored.`)
+        value = optionDefault(p)
+      }
     }
     vars[p.key] = value
     if (p.env && p.side && value) envValues[p.side][p.env] = value
@@ -668,15 +740,23 @@ async function cmdAdd(positional, flags) {
 
   // 5. preview, confirm
   const patchMode = chosen.noPatch ? 'off' : interactive || chosen.yes || chosen.patch ? 'on' : 'manual'
-  const hasPatches = Boolean(variant.manifest.patches)
+  const hasPatches = Boolean(variant.manifest.patches) || secretTargets({ manifest: variant.manifest, chosen, cwd: CWD }).length > 0
   if (interactive) {
     runInstall(variant, { ...chosen, dryRun: true }, ctx)
-    if (hasPatches && patchMode === 'on') printEdits(planEdits(variant, chosen, ctx), true)
+    let preview = []
+    if (hasPatches && patchMode === 'on') {
+      preview = planEdits(variant, chosen, ctx)
+      printEdits(preview, true)
+    }
+    const verdict = await guardDirty(editFiles(preview), chosen, { interactive: true, canStash: true })
+    if (verdict === 'cancel') return console.log('Cancelled.')
+    if (verdict === 'stashed') printEdits(planEdits(variant, chosen, ctx), true)
     if (chosen.dryRun) return followUp()
     if (!(await confirm('\nGo ahead?'))) return console.log('Cancelled.')
   }
 
-  // 6. do it
+  // 6. do it (not interactive: refuse before anything is written if an edit would land on uncommitted work)
+  if (!interactive && !chosen.dryRun && hasPatches && patchMode === 'on') await guardDirty(editFiles(planEdits(variant, chosen, ctx)), chosen, { interactive: false })
   const copied = runInstall(variant, chosen, ctx)
   let plan = []
   const appliedIds = new Set()
@@ -685,11 +765,14 @@ async function cmdAdd(positional, flags) {
     plan = planEdits(variant, chosen, ctx)
     if (chosen.dryRun) {
       printEdits(plan, patchMode === 'on')
+      if (!interactive && patchMode === 'on') await guardDirty(editFiles(plan), chosen, { interactive: false })
     } else if (patchMode === 'on') {
       if (!interactive) printEdits(plan, true)
-      patchedFiles.push(...applyPatches(plan, CWD))
+      const written = applyPatches(plan, CWD)
+      // .gitignore lines are additive and harmless to leave behind, so remove has nothing to revert there
+      patchedFiles.push(...written.filter((f) => path.resolve(CWD, f) !== path.join(CWD, '.gitignore')))
       plan.filter((r) => r.status === 'apply').forEach((r) => appliedIds.add(r.id))
-      if (patchedFiles.length) console.log(`\n  Originals saved in ${rel(path.join(CWD, '.devcommons', 'backup'))}`)
+      if (written.length) console.log(`\n  Originals saved in ${rel(path.join(CWD, '.devcommons', 'backup'))}`)
     }
   } else if (hasPatches && !chosen.dryRun) {
     plan = planEdits(variant, chosen, ctx)
@@ -705,6 +788,77 @@ async function cmdAdd(positional, flags) {
   await followUp()
 }
 
+
+// ---------------------------------------------------------------- doctor
+
+const MARK = { ok: green('ok  '), warn: yellow('warn'), fail: red('FAIL'), skip: dim('skip') }
+
+function printDoctor(entry, results) {
+  const where = [entry.frontend && `frontend ${entry.frontend}`, entry.backend && `backend ${entry.backend}`].filter(Boolean).join('  ')
+  console.log(`\n${bold(`${entry.feature} (${entry.stack})`)} ${dim([entry.version, where].filter(Boolean).join('  '))}`)
+  for (const area of AREAS) {
+    const rows = results.filter((r) => r.area === area)
+    if (!rows.length) continue
+    console.log(`\n${bold(area)}`)
+    for (const r of rows) {
+      console.log(`  ${MARK[r.status]}  ${r.title}`)
+      for (const line of String(r.detail ?? '').split('\n').filter(Boolean)) console.log(`        ${dim(line)}`)
+      ;[].concat(r.fix ?? []).filter(Boolean).forEach((line, i) => console.log(`        ${i === 0 ? 'fix: ' : '     '}${line}`))
+    }
+  }
+}
+
+/** doctor --fix: add the missing secret entries to .gitignore. Nothing else is touched. */
+function fixGitignore(variant, chosen) {
+  const targets = secretTargets({ manifest: variant.manifest, chosen, cwd: CWD })
+  if (!targets.length) return []
+  const plan = planGitignore(CWD, targets)
+  if (plan.status !== 'apply') return []
+  applyPatches([plan], CWD)
+  return plan.patterns
+}
+
+async function cmdDoctor(positional, flags) {
+  let record
+  try {
+    record = JSON.parse(fs.readFileSync(path.join(CWD, '.devcommons.json'), 'utf8'))
+  } catch {
+    die('No .devcommons.json here, so there is nothing to check. Run this in the project where you ran "devcommons add".')
+  }
+  const installed = (record.features ?? []).filter((f) => (!positional[0] || f.feature === positional[0]) && (!positional[1] || f.stack === positional[1]))
+  if (installed.length === 0) die(positional.length ? `"${positional.join(' ')}" is not installed here.` : '.devcommons.json lists no features.')
+
+  const variants = loadVariants()
+  const report = []
+  const fixed = []
+  for (const entry of installed) {
+    let variant = variants.find((v) => v.feature === entry.feature && v.stack === entry.stack)
+    if (!variant) {
+      report.push({ entry, results: [{ area: AREAS[0], status: 'fail', title: `${entry.feature} (${entry.stack}) is not in this devcommons version, so it cannot be checked` }] })
+      continue
+    }
+    const chosen = recordedDirs(entry, variant.manifest, true)
+    variant = adjustVariant(variant, chosen.options)
+    if (flags.fix) fixed.push(...fixGitignore(variant, chosen))
+    const contract = variant.manifest.doctor?.probe?.contract
+    const conformance = contract ? path.join(ROOT, 'contracts', contract, 'conformance.mjs') : null
+    const results = await runDoctor({ entry, variant, chosen, cwd: CWD, flags, conformance: conformance && fs.existsSync(conformance) ? conformance : null })
+    report.push({ entry, results })
+  }
+
+  const all = report.flatMap((r) => r.results)
+  const sum = summarize(all)
+  if (flags.json) {
+    const features = report.map(({ entry, results }) => ({ feature: entry.feature, stack: entry.stack, version: entry.version ?? null, checks: results }))
+    console.log(JSON.stringify({ ok: sum.fail === 0, summary: sum, fixed, features }, null, 2))
+  } else {
+    if (fixed.length) console.log(`\nAdded to .gitignore: ${fixed.join(', ')}`)
+    report.forEach(({ entry, results }) => printDoctor(entry, results))
+    const parts = [green(`${sum.ok} ok`), sum.warn ? yellow(`${sum.warn} warning${sum.warn === 1 ? '' : 's'}`) : `${sum.warn} warnings`, sum.fail ? red(`${sum.fail} problem${sum.fail === 1 ? '' : 's'}`) : `${sum.fail} problems`]
+    console.log(`\n${parts.join('  ·  ')}${sum.skip ? dim(`  ·  ${sum.skip} not checked`) : ''}\n`)
+  }
+  if (sum.fail) process.exitCode = 1
+}
 
 // ---------------------------------------------------------------- remove
 
@@ -808,13 +962,13 @@ async function pickInstalled(positional, flags, verb) {
 }
 
 /** Folders an installed entry lives in, as absolute paths (a side whose folder is gone is skipped with a note). */
-function recordedDirs(entry, manifest) {
+function recordedDirs(entry, manifest, quiet = false) {
   const chosen = { options: entry.options ? completeOptions(manifest, entry.options) : {} }
   for (const side of ['frontend', 'backend']) {
     if (!entry[side]) continue
     const dir = path.resolve(CWD, entry[side])
     if (fs.existsSync(dir)) chosen[side] = dir
-    else console.log(`  ${yellow('skipping')} ${side}: ${entry[side]} no longer exists`)
+    else if (!quiet) console.log(`  ${yellow('skipping')} ${side}: ${entry[side]} no longer exists`)
   }
   return chosen
 }
@@ -857,7 +1011,11 @@ async function cmdRemove(positional, flags) {
     ;(entry.copied ?? []).forEach((f) => console.log(`            ${f}`))
   } else if (files.remove.length + files.edited.length === 0) console.log(`  ${dim('nothing to delete')}`)
 
-  if (flags.dryRun) return console.log(`\n${dim('Dry run: nothing was changed.')}\n`)
+  if (flags.dryRun) {
+    await guardDirty(editFiles(edits), flags, { interactive: false, verb: 'undo edits in' })
+    return console.log(`\n${dim('Dry run: nothing was changed.')}\n`)
+  }
+  if ((await guardDirty(editFiles(edits), flags, { interactive: !flags.yes, verb: 'undo edits in' })) === 'cancel') return console.log('Cancelled.')
   if (!flags.yes && !(await confirm('\nGo ahead?', false))) return console.log('Cancelled.')
 
   const patched = applyPatches(edits, CWD)
@@ -1063,6 +1221,10 @@ try {
     cmdList()
   } else if (command === 'detect') {
     cmdDetect()
+  } else if (command === 'doctor') {
+    const { positional, flags } = parseArgs(rest)
+    if (positional.length > 2) die(`"doctor" takes at most a feature and a stack.\n\n${USAGE}`)
+    await cmdDoctor(positional, flags)
   } else if (command === 'add') {
     const { positional, flags } = parseArgs(rest)
     if (positional.length > 2) die(`"add" takes at most a feature and a stack.\n\n${USAGE}`)

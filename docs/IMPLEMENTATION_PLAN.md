@@ -20,7 +20,7 @@
 | 3 | Headless core + themable UI (fit any existing frontend) | **mostly done (v0.6.0); TypeScript and Tailwind/shadcn UI variants left** |
 | 4 | Framework compatibility (Next.js, CRA, env shim, TypeScript) | **CRA, env shim and package-manager detection done (v0.8.0); Next.js and TypeScript left** |
 | 5 | More auth stacks + shared API contract | **contract, conformance script, per-half stack matching and `express-firebase` done (v0.9.0); more variants left** |
-| 6 | Safety, `doctor`, secrets hygiene | planned |
+| 6 | Safety, `doctor`, secrets hygiene | **done (v0.10.0)** |
 | 7 | Tests, CI, releases, `update` | **tests, CI workflow (first GitHub run green), changelog, `update` (v0.7.0) done; npm release to do** |
 | 8 | Feature generator + next features | planned |
 
@@ -147,15 +147,17 @@ Folder layout: `features/<feature>/<stack>/`; a variant covers one half or both.
 
 ---
 
-## Phase 6: Safety and `doctor`
+## Phase 6: Safety and `doctor` (done, v0.10.0)
 
-**Tasks**
-1. After adding env keys or service-account paths, check the project's `.gitignore` and offer to add `.env` and key files.
-2. `devcommons doctor`: reads `.devcommons.json`, verifies files exist, env keys are filled, dependencies are installed, the proxy/CORS is set, and the backend answers `GET /api/auth/me` with 401 (alive and verifying tokens).
-3. Refuse to run if the working tree has uncommitted changes in files it would patch, unless `--force` (so the user can always `git diff` the result). Offer `git stash` or continue.
-4. Never log secrets; never write real keys to files.
+Delivered, in the order of the original tasks:
+1. **`.gitignore`**: `add` plans one more edit (`scripts/lib/safety.mjs`): `.env` and the key file's path (from the manifest's `secrets.files`, resolved from the `.env` value or its default; a key outside the project is skipped). "Already ignored" is decided by `git check-ignore --no-index` when git is available and by a small `.gitignore` reader otherwise (anchoring, globs, `**`, negation, folder rules, nested files). It is previewed, backed up and applied like any patch; copy-only runs print the lines.
+2. **`devcommons doctor`** (`scripts/lib/doctor.mjs`): six groups (files, edits, environment, packages, connection, safety), `ok / warn / fail / skip` with a `fix` line, exit 1 on any failure, `--json`, `--offline`, `--url`, `--origin`, `--prefix`, `--fix` (only touches `.gitignore`). The live part goes further than the plan: besides the 401, it sends a bad token (proves verification runs), a CORS preflight, and a request through the frontend dev server (proves the proxy forwards). Judgement calls: a backend that is not running is a warning, not a failure; missing CORS is fine behind the dev proxy and a failure only when the browser calls the backend directly; a different Python on PATH than the project's virtualenv is a warning.
+3. **Uncommitted changes**: refuses before writing anything if a file it would edit is dirty (also untracked); interactive offers Cancel / Stash / Continue; `--allow-dirty` or `--force` overrides. Applies to `remove` too (no stash offered there). Stash caveat: the edits then land on the committed version and `git stash pop` may conflict if the same lines changed.
+4. **Secrets**: prompts and `appendEnv` refuse private-key material; doctor prints env names and never values, uses fixed messages for parse failures, and redacts server text it echoes.
 
----
+New manifest keys (both auth variants): `secrets.files[]` = `{ side, env, inlineEnv, adcEnv, label, format, projectIdPrompt, help }` and `doctor` = `{ probe: { contract, path, prefix }, apiUrlEnv }`.
+
+Not done / known limits: the uncommitted-changes check does not cover `.env` or copied files (only edits to your own files and `.gitignore`); the Windows/macOS behaviour of the git helpers is untested; doctor does not run the full conformance script itself (it prints the command); no `--strict` (warnings as failures).
 
 ## Phase 7: Tests, CI, releases (tests, CI, changelog and `update` done)
 
@@ -199,7 +201,7 @@ Still to do:
   "postInstall": { "frontend": [ ], "backend": [ ] }
 }
 ```
-`detect`, `copy`, `dependencies`, `envDefaults`, `postInstall`, `prompts`, `patches`, `options` and `when` all exist today.
+`detect`, `copy`, `dependencies`, `envDefaults`, `postInstall`, `prompts`, `patches`, `options`, `when`, `secrets` (key files for `.gitignore` and doctor) and `doctor` (the live probe) all exist today.
 
 ---
 
